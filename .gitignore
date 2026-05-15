@@ -1,0 +1,65 @@
+# ===== Python / Backend =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ===== Node / Frontend =====
+node_modules/
+dist/
+build/
+.next/
+.cache/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===== Variables de entorno =====
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+!.env.example
+
+# ===== Editores / IDEs =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== Docker =====
+*.pid
+
+# ===== Base de datos local =====
+*.sqlite
+*.sqlite3
+*.db
+postgres_data/
+
+# ===== Alembic (no ignoramos migraciones, solo cache) =====
+backend/alembic/__pycache__/
+
+# ===== Logs =====
+logs/
+*.log
+
+# ===== Sistema operativo =====
+.DS_Store
+Thumbs.db
+desktop.ini
