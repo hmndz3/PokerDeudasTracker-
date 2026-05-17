@@ -8,6 +8,7 @@ from app.database import Base
 
 # Importar acá todos los modelos cuando existan
 # from app.models import user, group, poker_table, ...
+from app.models import *  # noqa: F401, F403
 
 config = context.config
 
