@@ -7,17 +7,17 @@ from app.models.poker_table import TableStatus
 class TableCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     group_id: int
+    buy_in_amount: int = Field(ge=1)  # monto fijo en décimos (Q50.0 → 500)
 
 
 class PlayerResultCreate(BaseModel):
     user_id: int
-    buy_in: int = Field(ge=0)
+    # buy_in viene del table.buy_in_amount, no se pasa aquí
 
 
 class PlayerResultUpdate(BaseModel):
-    buy_in: Optional[int] = Field(ge=0, default=None)
-    rebuys: Optional[int] = Field(ge=0, default=None)
-    cash_out: Optional[int] = Field(ge=0, default=None)
+    rebuys: Optional[int] = Field(ge=0, default=None)   # CANTIDAD de recompras
+    cash_out: Optional[int] = Field(ge=0, default=None)  # monto de salida en décimos
 
 
 class PlayerResultOut(BaseModel):
@@ -26,11 +26,11 @@ class PlayerResultOut(BaseModel):
     user_id: int
     real_name: str
     username: str
-    buy_in: int
-    rebuys: int
-    cash_out: int
-    total_in: int
-    net_result: int
+    buy_in: int       # monto (décimos)
+    rebuys: int       # CANTIDAD de recompras
+    cash_out: int     # monto (décimos)
+    total_in: int     # buy_in * (1 + rebuys)
+    net_result: int   # cash_out - total_in
 
 
 class TableOut(BaseModel):
@@ -42,6 +42,7 @@ class TableOut(BaseModel):
     created_by: int
     created_at: datetime
     closed_at: Optional[datetime]
+    buy_in_amount: int
     results: list[PlayerResultOut] = []
     total_in: int = 0
     total_out: int = 0
@@ -56,6 +57,7 @@ class TableListOut(BaseModel):
     created_by: int
     created_at: datetime
     closed_at: Optional[datetime]
+    buy_in_amount: int
     player_count: int = 0
 
 

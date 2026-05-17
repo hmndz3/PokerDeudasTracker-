@@ -24,7 +24,9 @@ class PokerTable(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     closed_at = Column(DateTime, nullable=True)
 
-    # Montos en décimos (Q45.5 = 455)
+    # Monto fijo de buy-in en décimos (Q45.5 → 455). Mismo para todos.
+    buy_in_amount = Column(Integer, nullable=False, default=0)
+
     results = relationship(
         "TablePlayerResult",
         back_populates="table",
@@ -34,7 +36,10 @@ class PokerTable(Base):
 
 class TablePlayerResult(Base):
     """Resultado de un jugador en una mesa específica.
-    Todos los montos son enteros en décimos (Q45.5 → 455).
+    - buy_in: monto fijo de la mesa (décimos)
+    - rebuys: CANTIDAD de recompras (entero, no monto)
+    - cash_out: con cuánto salió (décimos)
+    - total_in = buy_in * (1 + rebuys)
     """
     __tablename__ = "table_player_results"
     __table_args__ = (
@@ -45,16 +50,17 @@ class TablePlayerResult(Base):
     table_id = Column(Integer, ForeignKey("poker_tables.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    buy_in = Column(Integer, nullable=False, default=0)       # entrada base
-    rebuys = Column(Integer, nullable=False, default=0)       # suma de recompras
-    cash_out = Column(Integer, nullable=False, default=0)     # con cuánto salió
+    buy_in = Column(Integer, nullable=False, default=0)    # monto fijo (= table.buy_in_amount)
+    rebuys = Column(Integer, nullable=False, default=0)    # CANTIDAD de recompras
+    cash_out = Column(Integer, nullable=False, default=0)  # monto de salida (décimos)
 
     table = relationship("PokerTable", back_populates="results")
     user = relationship("User")
 
     @property
     def total_in(self) -> int:
-        return self.buy_in + self.rebuys
+        """buy_in * (1 + rebuys_count)"""
+        return self.buy_in * (1 + self.rebuys)
 
     @property
     def net_result(self) -> int:
