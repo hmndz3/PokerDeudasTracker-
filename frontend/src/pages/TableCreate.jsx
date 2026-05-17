@@ -37,7 +37,7 @@ export default function TableCreate() {
   }
 
   return (
-    <div>
+    <div style={{ maxWidth: 560, margin: '0 auto' }}>
       <button className="btn-ghost" onClick={() => navigate('/tables')} style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
         ← Volver a mesas
       </button>
@@ -46,7 +46,7 @@ export default function TableCreate() {
         <h1 className="page-title">Nueva mesa</h1>
       </div>
 
-      <div className="card" style={{ maxWidth: '520px' }}>
+      <div className="card" style={{ padding: '1.75rem' }}>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Nombre de la mesa</label>

@@ -99,7 +99,7 @@ export default function Layout() {
         )}
 
         {/* Main */}
-        <main style={{ flex: 1, padding: '1.75rem', maxWidth: '1000px', width: '100%' }}>
+        <main style={{ flex: 1, padding: '1.75rem 2rem', minWidth: 0 }}>
           <Outlet />
         </main>
       </div>
