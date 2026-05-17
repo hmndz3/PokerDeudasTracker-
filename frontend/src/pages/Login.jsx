@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Navigate } from 'react-router-dom'
 import api from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
   const [username, setUsername] = useState('')
@@ -8,6 +9,10 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const { user, loading: authLoading, login } = useAuth()
+
+  if (authLoading) return null
+  if (user) return <Navigate to="/" replace />
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -23,7 +28,7 @@ export default function Login() {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       })
 
-      localStorage.setItem('token', res.data.access_token)
+      await login(res.data.access_token)
       navigate('/')
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al iniciar sesión')
@@ -44,7 +49,7 @@ export default function Login() {
       <div className="card" style={{ width: '100%', maxWidth: '400px' }}>
         <h1 style={{ margin: '0 0 0.5rem', color: 'var(--primary)' }}>Iniciar sesión</h1>
         <p style={{ color: 'var(--text-muted)', marginTop: 0, marginBottom: '1.5rem' }}>
-          Ingresa con tu usuario de PokerUxLab
+          Ingresa con tu usuario de PokerLedger
         </p>
 
         <form onSubmit={handleSubmit}>

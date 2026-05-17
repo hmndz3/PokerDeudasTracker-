@@ -1,11 +1,12 @@
 import { Outlet, Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 
 export default function Layout() {
   const navigate = useNavigate()
-  const token = localStorage.getItem('token')
+  const { user, logout } = useAuth()
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
+    logout()
     navigate('/login')
   }
 
@@ -31,13 +32,23 @@ export default function Layout() {
             textDecoration: 'none',
           }}
         >
-          🎲 PokerUxLab
+          🎲 PokerLedger
         </Link>
 
-        {token && (
-          <button className="btn-secondary" onClick={handleLogout}>
-            Cerrar sesión
-          </button>
+        {user && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text)' }}>
+                {user.real_name}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {user.role === 'admin' ? 'Administrador' : 'Jugador'}
+              </div>
+            </div>
+            <button className="btn-secondary" onClick={handleLogout}>
+              Cerrar sesión
+            </button>
+          </div>
         )}
       </header>
 
