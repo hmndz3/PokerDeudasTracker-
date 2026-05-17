@@ -4,17 +4,17 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.routers import auth, users
+from app.routers import auth, users, groups, tables, debts, audit, stats
 
 app = FastAPI(
     title="PokerLedger API",
-    version="0.1.0",
+    version="1.0.0",
     description="API para gestión de mesas de póker entre amigos",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -22,6 +22,11 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(groups.router)
+app.include_router(tables.router)
+app.include_router(debts.router)
+app.include_router(audit.router)
+app.include_router(stats.router)
 
 
 @app.get("/health")
