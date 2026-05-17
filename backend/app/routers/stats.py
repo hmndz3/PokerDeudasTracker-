@@ -6,6 +6,8 @@ from app.models import User, UserRole, Group, PokerTable, TablePlayerResult, Tab
 from app.core.deps import get_current_user, require_admin
 from app.schemas.stats import DashboardStats, PlayerStat
 
+from typing import Optional
+
 router = APIRouter(prefix="/stats", tags=["stats"])
 
 
@@ -84,6 +86,16 @@ def my_stats(
     return _compute_player_stat(current_user, db)
 
 
+@router.get("/players", response_model=list[PlayerStat])
+def all_player_stats(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Stats de todos los jugadores activos (para admin panel)."""
+    players = db.query(User).filter(User.role == UserRole.PLAYER, User.is_active == True).all()
+    return [_compute_player_stat(u, db) for u in players]
+
+
 @router.get("/players/{user_id}", response_model=PlayerStat)
 def player_stats(
     user_id: int,
@@ -94,3 +106,32 @@ def player_stats(
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return _compute_player_stat(user, db)
+
+
+@router.get("/me/history")
+def my_history(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Historial de resultados por mesa del jugador actual (para gráficas)."""
+    results = (
+        db.query(TablePlayerResult)
+        .join(PokerTable, TablePlayerResult.table_id == PokerTable.id)
+        .filter(
+            TablePlayerResult.user_id == current_user.id,
+            PokerTable.status == TableStatus.CLOSED,
+        )
+        .order_by(PokerTable.closed_at)
+        .all()
+    )
+    return [
+        {
+            "table_id": r.table_id,
+            "table_name": r.table.name,
+            "net_result": r.net_result,
+            "total_in": r.total_in,
+            "cash_out": r.cash_out,
+            "closed_at": r.table.closed_at.isoformat() if r.table.closed_at else None,
+        }
+        for r in results
+    ]

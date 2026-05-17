@@ -5,14 +5,163 @@ import {
 } from '../api/tables'
 import { getUsers } from '../api/stats'
 import { useAuth } from '../context/AuthContext'
-import { fmtQ, toDecimos, fmt } from '../utils/format'
+import { fmtQ, toDecimos } from '../utils/format'
 
-function NetBadge({ value }) {
-  const color = value > 0 ? 'var(--success)' : value < 0 ? 'var(--danger)' : 'var(--text-muted)'
+function Avatar({ name, size = 'md' }) {
+  const initial = name?.charAt(0)?.toUpperCase() || '?'
+  const cls = size === 'sm' ? 'avatar avatar-sm' : size === 'lg' ? 'avatar avatar-lg' : 'avatar'
+  return <div className={cls}>{initial}</div>
+}
+
+function NetResult({ value }) {
+  const cls = value > 0 ? 'net-positive' : value < 0 ? 'net-negative' : 'net-zero'
   return (
-    <span style={{ fontWeight: 700, color }}>
-      {value >= 0 ? '+' : ''}{fmtQ(value)}
+    <span className={cls}>
+      {value > 0 ? '+' : ''}{fmtQ(value)}
     </span>
+  )
+}
+
+function Counter({ value, onChange, min = 0, disabled }) {
+  return (
+    <div className="counter">
+      <button type="button" onClick={() => onChange(value - 1)} disabled={disabled || value <= min}>−</button>
+      <span>{value}</span>
+      <button type="button" onClick={() => onChange(value + 1)} disabled={disabled}>+</button>
+    </div>
+  )
+}
+
+function PlayerCard({ result, buyInAmount, isAdmin, isClosed, onSave, onRemove }) {
+  const [editing, setEditing] = useState(false)
+  const [rebuys, setRebuys] = useState(result.rebuys)
+  const [cashOutRaw, setCashOutRaw] = useState((result.cash_out / 10).toFixed(1))
+  const [saving, setSaving] = useState(false)
+
+  const displayTotalIn = buyInAmount * (1 + rebuys)
+  const displayNet = toDecimos(cashOutRaw) - displayTotalIn
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await onSave(result.user_id, { rebuys, cash_out: toDecimos(cashOutRaw) })
+      setEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCancel = () => {
+    setRebuys(result.rebuys)
+    setCashOutRaw((result.cash_out / 10).toFixed(1))
+    setEditing(false)
+  }
+
+  return (
+    <div className="card" style={{
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '1rem',
+      borderTop: `3px solid ${result.net_result > 0 ? 'var(--success)' : result.net_result < 0 ? 'var(--danger)' : 'var(--border)'}`,
+      transition: 'box-shadow 0.15s',
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Avatar name={result.real_name} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{result.real_name}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>@{result.username}</div>
+          </div>
+        </div>
+        {!isClosed && isAdmin && !editing && (
+          <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <button className="btn-icon" onClick={() => setEditing(true)} title="Editar">✏️</button>
+            <button className="btn-icon" style={{ color: 'var(--danger)' }} onClick={() => onRemove(result.user_id)} title="Quitar">×</button>
+          </div>
+        )}
+      </div>
+
+      {/* Stats grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+        <div>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>
+            Buy-in
+          </div>
+          <div style={{ fontWeight: 600, color: 'var(--text)' }}>{fmtQ(result.buy_in)}</div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-light)' }}>fijo</div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>
+            Recompras
+          </div>
+          {editing ? (
+            <Counter value={rebuys} onChange={setRebuys} min={0} />
+          ) : (
+            <>
+              <div style={{ fontWeight: 600 }}>{result.rebuys}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-light)' }}>{fmtQ(result.rebuys * result.buy_in)} extra</div>
+            </>
+          )}
+        </div>
+
+        <div>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>
+            Total metido
+          </div>
+          <div style={{ fontWeight: 600 }}>
+            {editing ? fmtQ(displayTotalIn) : fmtQ(result.total_in)}
+          </div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-light)' }}>{editing ? `${1 + rebuys} buy-ins` : `${1 + result.rebuys} buy-ins`}</div>
+        </div>
+      </div>
+
+      <div className="divider" style={{ margin: '0' }} />
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', alignItems: 'flex-end' }}>
+        <div>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>
+            Salida (Q)
+          </div>
+          {editing ? (
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              value={cashOutRaw}
+              onChange={e => setCashOutRaw(e.target.value)}
+              style={{ padding: '0.35rem 0.6rem', fontSize: '0.9rem' }}
+            />
+          ) : (
+            <div style={{ fontWeight: 600, fontSize: '1rem' }}>{fmtQ(result.cash_out)}</div>
+          )}
+        </div>
+
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>
+            Resultado
+          </div>
+          <div style={{ fontSize: '1.15rem' }}>
+            {editing
+              ? <NetResult value={displayNet} />
+              : <NetResult value={result.net_result} />
+            }
+          </div>
+        </div>
+      </div>
+
+      {editing && (
+        <div style={{ display: 'flex', gap: '0.5rem', paddingTop: '0.25rem' }}>
+          <button className="btn-primary" style={{ flex: 1, padding: '0.5rem' }} onClick={handleSave} disabled={saving}>
+            {saving ? 'Guardando...' : '✓ Guardar'}
+          </button>
+          <button className="btn-secondary" style={{ padding: '0.5rem 0.85rem' }} onClick={handleCancel}>
+            Cancelar
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -26,18 +175,6 @@ export default function TableDetail() {
   const [allUsers, setAllUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [validation, setValidation] = useState(null)
-
-  // Add player form
-  const [selUserId, setSelUserId] = useState('')
-  const [buyIn, setBuyIn] = useState('')
-  const [adding, setAdding] = useState(false)
-  const [addError, setAddError] = useState('')
-
-  // Edit result
-  const [editing, setEditing] = useState(null) // user_id being edited
-  const [editFields, setEditFields] = useState({})
-  const [saving, setSaving] = useState(false)
-
   const [closing, setClosing] = useState(false)
   const [closeError, setCloseError] = useState('')
 
@@ -49,6 +186,7 @@ export default function TableDetail() {
     setTable(t)
     setAllUsers(users)
     setLoading(false)
+    setValidation(null)
   }
 
   useEffect(() => { load() }, [id])
@@ -57,40 +195,34 @@ export default function TableDetail() {
   const eligible = allUsers.filter(u => !playerIds.includes(u.id) && u.is_active)
   const isClosed = table?.status === 'closed'
 
-  const handleAddPlayer = async (e) => {
-    e.preventDefault()
-    setAddError('')
-    setAdding(true)
+  const handleAddPlayer = async (userId) => {
     try {
-      await addPlayer(id, { user_id: parseInt(selUserId), buy_in: toDecimos(buyIn) })
-      setSelUserId('')
-      setBuyIn('')
+      await addPlayer(id, { user_id: userId })
       load()
     } catch (err) {
-      setAddError(err.response?.data?.detail || 'Error')
-    } finally {
-      setAdding(false)
+      alert(err.response?.data?.detail || 'Error al agregar jugador')
     }
   }
 
-  const startEdit = (r) => {
-    setEditing(r.user_id)
-    setEditFields({ rebuys: fmt(r.rebuys), cash_out: fmt(r.cash_out) })
-  }
-
-  const handleSaveEdit = async (userId) => {
-    setSaving(true)
+  const handleSave = async (userId, data) => {
     try {
-      await updatePlayerResult(id, userId, {
-        rebuys: toDecimos(editFields.rebuys || '0'),
-        cash_out: toDecimos(editFields.cash_out || '0'),
-      })
-      setEditing(null)
+      await updatePlayerResult(id, userId, data)
       load()
     } catch (err) {
       alert(err.response?.data?.detail || 'Error al guardar')
-    } finally {
-      setSaving(false)
+    }
+  }
+
+  const handleRemove = async (userId) => {
+    if (!confirm('¿Quitar este jugador de la mesa?')) return
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/tables/${id}/players/${userId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      })
+      load()
+    } catch (err) {
+      alert('Error al quitar jugador')
     }
   }
 
@@ -104,7 +236,7 @@ export default function TableDetail() {
   }
 
   const handleClose = async () => {
-    if (!confirm('¿Cerrar esta mesa? Esta acción generará las deudas automáticamente.')) return
+    if (!confirm('¿Cerrar la mesa? Esto generará las deudas automáticamente.')) return
     setCloseError('')
     setClosing(true)
     try {
@@ -117,32 +249,71 @@ export default function TableDetail() {
     }
   }
 
-  if (loading) return <p style={{ color: 'var(--text-muted)' }}>Cargando...</p>
+  if (loading) return (
+    <div>
+      <div className="card skeleton" style={{ height: 80, marginBottom: '1rem' }} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+        {[...Array(3)].map((_, i) => <div key={i} className="card skeleton" style={{ height: 200 }} />)}
+      </div>
+    </div>
+  )
   if (!table) return <p style={{ color: 'var(--danger)' }}>Mesa no encontrada</p>
+
+  const winners = table.results.filter(r => r.net_result > 0).sort((a, b) => b.net_result - a.net_result)
+  const losers = table.results.filter(r => r.net_result < 0).sort((a, b) => a.net_result - b.net_result)
 
   return (
     <div>
-      <button className="btn-secondary" onClick={() => navigate('/tables')} style={{ marginBottom: '1rem', fontSize: '0.85rem' }}>
-        ← Volver
+      <button className="btn-ghost" onClick={() => navigate('/tables')} style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
+        ← Volver a mesas
       </button>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
-        <div>
-          <h1 style={{ margin: '0 0 0.25rem', fontSize: '1.4rem' }}>{table.name}</h1>
-          <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.85rem' }}>
-            {table.group_name} ·{' '}
-            <span style={{ color: isClosed ? 'var(--text-muted)' : 'var(--success)', fontWeight: 500 }}>
-              {isClosed ? 'Cerrada' : 'Abierta'}
-            </span>
-          </p>
+      {/* Table header */}
+      <div className="card" style={{ marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+              <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800 }}>{table.name}</h1>
+              <span className={`badge ${isClosed ? 'badge-neutral' : 'badge-success'}`}>
+                {isClosed ? '🔒 Cerrada' : '🟢 Abierta'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>👥 {table.group_name}</span>
+              <span style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>🃏 {table.results.length} jugadores</span>
+              <span className="badge badge-primary" style={{ fontSize: '0.78rem' }}>
+                Buy-in: {fmtQ(table.buy_in_amount)} c/u
+              </span>
+            </div>
+          </div>
+
+          {isAdmin && !isClosed && (
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn-secondary" onClick={handleValidate}>📊 Validar</button>
+              <button className="btn-primary" onClick={handleClose} disabled={closing}>
+                {closing ? 'Cerrando...' : '🔒 Cerrar mesa'}
+              </button>
+            </div>
+          )}
         </div>
 
-        {isAdmin && !isClosed && (
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="btn-secondary" onClick={handleValidate}>Validar</button>
-            <button className="btn-primary" onClick={handleClose} disabled={closing}>
-              {closing ? 'Cerrando...' : 'Cerrar mesa'}
-            </button>
+        {/* Totals row */}
+        {table.results.length > 0 && (
+          <div style={{ display: 'flex', gap: '2rem', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total metido</div>
+              <div style={{ fontWeight: 700, fontSize: '1rem' }}>{fmtQ(table.total_in)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total salido</div>
+              <div style={{ fontWeight: 700, fontSize: '1rem' }}>{fmtQ(table.total_out)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Diferencia</div>
+              <div style={{ fontWeight: 700, fontSize: '1rem', color: table.total_out - table.total_in === 0 ? 'var(--success)' : 'var(--danger)' }}>
+                {fmtQ(table.total_out - table.total_in)}
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -152,143 +323,106 @@ export default function TableDetail() {
         <div className="card" style={{
           marginBottom: '1.25rem',
           borderLeft: `4px solid ${validation.can_close ? 'var(--success)' : 'var(--danger)'}`,
+          background: validation.can_close ? 'var(--success-light)' : 'var(--danger-light)',
         }}>
-          <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
-            <div><span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Total metido</span><br /><strong>{fmtQ(validation.total_in)}</strong></div>
-            <div><span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Total salido</span><br /><strong>{fmtQ(validation.total_out)}</strong></div>
-            <div><span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Diferencia</span><br /><strong style={{ color: validation.can_close ? 'var(--success)' : 'var(--danger)' }}>{fmtQ(validation.difference)}</strong></div>
-            <div><span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Estado</span><br /><strong style={{ color: validation.can_close ? 'var(--success)' : 'var(--danger)' }}>{validation.can_close ? '✓ Puede cerrarse' : '✗ No cuadra'}</strong></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <span style={{ fontSize: '1.5rem' }}>{validation.can_close ? '✅' : '❌'}</span>
+            <div>
+              <div style={{ fontWeight: 700, color: validation.can_close ? 'var(--success)' : 'var(--danger)' }}>
+                {validation.can_close ? 'La mesa puede cerrarse' : 'No cuadra aún'}
+              </div>
+              {!validation.can_close && (
+                <div style={{ fontSize: '0.83rem', color: 'var(--danger)', marginTop: '0.15rem' }}>
+                  Diferencia: {fmtQ(validation.difference)} — ajusta las salidas antes de cerrar
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {closeError && (
-        <div className="card" style={{ marginBottom: '1rem', borderLeft: '4px solid var(--danger)' }}>
-          <p style={{ color: 'var(--danger)', margin: 0 }}>{closeError}</p>
+        <div className="card" style={{ marginBottom: '1rem', borderLeft: '4px solid var(--danger)', background: 'var(--danger-light)' }}>
+          <p style={{ color: 'var(--danger)', margin: 0, fontSize: '0.88rem' }}>❌ {closeError}</p>
         </div>
       )}
 
-      {/* Add player (admin, open table) */}
-      {isAdmin && !isClosed && (
+      {/* Add player section (admin, open table) */}
+      {isAdmin && !isClosed && eligible.length > 0 && (
         <div className="card" style={{ marginBottom: '1.25rem' }}>
-          <h3 style={{ marginTop: 0, fontSize: '0.9rem', color: 'var(--text-muted)' }}>Agregar jugador</h3>
-          <form onSubmit={handleAddPlayer} style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div className="form-group" style={{ flex: 2, minWidth: '160px', marginBottom: 0 }}>
-              <label>Jugador</label>
-              <select value={selUserId} onChange={e => setSelUserId(e.target.value)} required>
-                <option value="">Seleccionar...</option>
-                {eligible.map(u => (
-                  <option key={u.id} value={u.id}>{u.real_name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group" style={{ flex: 1, minWidth: '100px', marginBottom: 0 }}>
-              <label>Buy-in (Q)</label>
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                value={buyIn}
-                onChange={e => setBuyIn(e.target.value)}
-                placeholder="0.0"
-                required
-              />
-            </div>
-            <button type="submit" className="btn-primary" disabled={adding}>
-              {adding ? '...' : 'Agregar'}
-            </button>
-          </form>
-          {addError && <div className="error-text" style={{ marginTop: '0.5rem' }}>{addError}</div>}
+          <div className="section-label">Agregar jugadores</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {eligible.map(u => (
+              <button
+                key={u.id}
+                className="player-chip"
+                onClick={() => handleAddPlayer(u.id)}
+              >
+                <div className="avatar avatar-sm">{u.real_name.charAt(0).toUpperCase()}</div>
+                {u.real_name}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Results table */}
-      <div className="card">
-        <h3 style={{ marginTop: 0, fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-          Jugadores ({table.results.length})
-        </h3>
-
-        {table.results.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)', margin: 0 }}>No hay jugadores aún.</p>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['Jugador', 'Buy-in', 'Recompras', 'Total metido', 'Salida', 'Resultado', isAdmin && !isClosed ? 'Acción' : null]
-                    .filter(Boolean)
-                    .map(h => (
-                      <th key={h} style={{ textAlign: h === 'Jugador' ? 'left' : 'right', padding: '0.5rem', color: 'var(--text-muted)', fontWeight: 500 }}>{h}</th>
-                    ))}
-                </tr>
-              </thead>
-              <tbody>
-                {table.results.map(r => (
-                  <tr key={r.user_id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '0.5rem', fontWeight: 500 }}>{r.real_name}</td>
-                    <td style={{ padding: '0.5rem', textAlign: 'right' }}>{fmtQ(r.buy_in)}</td>
-                    <td style={{ padding: '0.5rem', textAlign: 'right' }}>
-                      {editing === r.user_id ? (
-                        <input
-                          type="number" min="0" step="0.1"
-                          value={editFields.rebuys}
-                          onChange={e => setEditFields(f => ({ ...f, rebuys: e.target.value }))}
-                          style={{ width: '80px', padding: '0.25rem 0.4rem', textAlign: 'right' }}
-                        />
-                      ) : fmtQ(r.rebuys)}
-                    </td>
-                    <td style={{ padding: '0.5rem', textAlign: 'right' }}>{fmtQ(r.total_in)}</td>
-                    <td style={{ padding: '0.5rem', textAlign: 'right' }}>
-                      {editing === r.user_id ? (
-                        <input
-                          type="number" min="0" step="0.1"
-                          value={editFields.cash_out}
-                          onChange={e => setEditFields(f => ({ ...f, cash_out: e.target.value }))}
-                          style={{ width: '80px', padding: '0.25rem 0.4rem', textAlign: 'right' }}
-                        />
-                      ) : fmtQ(r.cash_out)}
-                    </td>
-                    <td style={{ padding: '0.5rem', textAlign: 'right' }}><NetBadge value={r.net_result} /></td>
-                    {isAdmin && !isClosed && (
-                      <td style={{ padding: '0.5rem', textAlign: 'right' }}>
-                        {editing === r.user_id ? (
-                          <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end' }}>
-                            <button className="btn-primary" style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem' }} onClick={() => handleSaveEdit(r.user_id)} disabled={saving}>
-                              {saving ? '...' : 'Guardar'}
-                            </button>
-                            <button className="btn-secondary" style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem' }} onClick={() => setEditing(null)}>
-                              ✕
-                            </button>
-                          </div>
-                        ) : (
-                          <button className="btn-secondary" style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem' }} onClick={() => startEdit(r)}>
-                            Editar
-                          </button>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-              {table.results.length > 0 && (
-                <tfoot>
-                  <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 600 }}>
-                    <td style={{ padding: '0.5rem' }}>Total</td>
-                    <td style={{ padding: '0.5rem', textAlign: 'right' }}>{fmtQ(table.total_in)}</td>
-                    <td />
-                    <td style={{ padding: '0.5rem', textAlign: 'right' }}>{fmtQ(table.total_in)}</td>
-                    <td style={{ padding: '0.5rem', textAlign: 'right' }}>{fmtQ(table.total_out)}</td>
-                    <td style={{ padding: '0.5rem', textAlign: 'right' }}>
-                      <NetBadge value={table.total_out - table.total_in} />
-                    </td>
-                    {isAdmin && !isClosed && <td />}
-                  </tr>
-                </tfoot>
-              )}
-            </table>
+      {/* Players grid */}
+      {table.results.length === 0 ? (
+        <div className="card" style={{ textAlign: 'center', padding: '2rem', borderStyle: 'dashed' }}>
+          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>👥</div>
+          <p style={{ color: 'var(--text-muted)', margin: 0 }}>No hay jugadores aún. Agrega jugadores arriba.</p>
+        </div>
+      ) : (
+        <>
+          <div className="section-label" style={{ marginBottom: '0.75rem' }}>
+            Jugadores ({table.results.length})
           </div>
-        )}
-      </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1rem' }}>
+            {table.results.map(r => (
+              <PlayerCard
+                key={r.user_id}
+                result={r}
+                buyInAmount={table.buy_in_amount}
+                isAdmin={isAdmin}
+                isClosed={isClosed}
+                onSave={handleSave}
+                onRemove={handleRemove}
+              />
+            ))}
+          </div>
+
+          {/* Summary after close */}
+          {isClosed && (
+            <div className="card" style={{ marginTop: '1.5rem' }}>
+              <div className="section-label" style={{ marginBottom: '0.75rem' }}>Resumen de resultados</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+                {winners.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 700, marginBottom: '0.5rem' }}>🏆 Ganadores</div>
+                    {winners.map(r => (
+                      <div key={r.user_id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px solid var(--border)' }}>
+                        <span style={{ fontSize: '0.88rem', fontWeight: 500 }}>{r.real_name}</span>
+                        <span style={{ fontWeight: 700, color: 'var(--success)' }}>+{fmtQ(r.net_result)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {losers.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--danger)', fontWeight: 700, marginBottom: '0.5rem' }}>💸 Perdedores</div>
+                    {losers.map(r => (
+                      <div key={r.user_id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px solid var(--border)' }}>
+                        <span style={{ fontSize: '0.88rem', fontWeight: 500 }}>{r.real_name}</span>
+                        <span style={{ fontWeight: 700, color: 'var(--danger)' }}>{fmtQ(r.net_result)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

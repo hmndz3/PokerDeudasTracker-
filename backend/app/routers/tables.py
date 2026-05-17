@@ -27,9 +27,9 @@ def _serialize_result(r: TablePlayerResult) -> dict:
         "real_name": r.user.real_name,
         "username": r.user.username,
         "buy_in": r.buy_in,
-        "rebuys": r.rebuys,
+        "rebuys": r.rebuys,        # CANTIDAD de recompras
         "cash_out": r.cash_out,
-        "total_in": r.total_in,
+        "total_in": r.total_in,    # buy_in * (1 + rebuys)
         "net_result": r.net_result,
     }
 
@@ -48,6 +48,7 @@ def _serialize_table(t: PokerTable, db: Session) -> dict:
         "created_by": t.created_by,
         "created_at": t.created_at,
         "closed_at": t.closed_at,
+        "buy_in_amount": t.buy_in_amount,
         "results": results,
         "total_in": total_in,
         "total_out": total_out,
@@ -65,12 +66,13 @@ def _serialize_table_list(t: PokerTable, db: Session) -> dict:
         "created_by": t.created_by,
         "created_at": t.created_at,
         "closed_at": t.closed_at,
+        "buy_in_amount": t.buy_in_amount,
         "player_count": len(t.results),
     }
 
 
 def _simplify_debts(results: list[TablePlayerResult]) -> list[tuple[int, int, int]]:
-    """Greedy debt simplification. Returns [(payer_id, receiver_id, amount)]."""
+    """Algoritmo greedy de mínimas transacciones."""
     creditors: list[list] = []
     debtors: list[list] = []
     for r in results:
@@ -136,11 +138,19 @@ def create_table(
     if not group:
         raise HTTPException(status_code=404, detail="Grupo no encontrado")
 
-    table = PokerTable(name=payload.name, group_id=payload.group_id, created_by=admin.id)
+    table = PokerTable(
+        name=payload.name,
+        group_id=payload.group_id,
+        created_by=admin.id,
+        buy_in_amount=payload.buy_in_amount,
+    )
     db.add(table)
     db.flush()
 
-    _add_audit(db, admin.id, "table.created", "PokerTable", table.id, {"name": payload.name})
+    _add_audit(db, admin.id, "table.created", "PokerTable", table.id, {
+        "name": payload.name,
+        "buy_in_amount": payload.buy_in_amount,
+    })
     db.commit()
     db.refresh(table)
     return _serialize_table(table, db)
@@ -182,10 +192,13 @@ def add_player(
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
+    # buy_in se toma del table.buy_in_amount (igual para todos)
     result = TablePlayerResult(
         table_id=table_id,
         user_id=payload.user_id,
-        buy_in=payload.buy_in,
+        buy_in=table.buy_in_amount,
+        rebuys=0,
+        cash_out=0,
     )
     db.add(result)
     db.commit()
@@ -213,10 +226,9 @@ def update_player_result(
         raise HTTPException(status_code=404, detail="Jugador no encontrado en esta mesa")
 
     if table.status == TableStatus.CLOSED:
-        before = {"buy_in": result.buy_in, "rebuys": result.rebuys, "cash_out": result.cash_out}
+        before = {"rebuys": result.rebuys, "cash_out": result.cash_out}
 
-    if payload.buy_in is not None:
-        result.buy_in = payload.buy_in
+    # rebuys = CANTIDAD de recompras (no monto)
     if payload.rebuys is not None:
         result.rebuys = payload.rebuys
     if payload.cash_out is not None:
@@ -230,6 +242,29 @@ def update_player_result(
     db.commit()
     db.refresh(result)
     return _serialize_result(result)
+
+
+@router.delete("/{table_id}/players/{user_id}", status_code=204)
+def remove_player(
+    table_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    table = db.query(PokerTable).filter(PokerTable.id == table_id).first()
+    if not table:
+        raise HTTPException(status_code=404, detail="Mesa no encontrada")
+    if table.status == TableStatus.CLOSED:
+        raise HTTPException(status_code=400, detail="Mesa cerrada")
+
+    result = db.query(TablePlayerResult).filter(
+        TablePlayerResult.table_id == table_id,
+        TablePlayerResult.user_id == user_id,
+    ).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Jugador no encontrado")
+    db.delete(result)
+    db.commit()
 
 
 @router.get("/{table_id}/validate", response_model=ValidationResult)
@@ -280,7 +315,6 @@ def close_table(
     table.status = TableStatus.CLOSED
     table.closed_at = datetime.utcnow()
 
-    # Create simplified debts
     transactions = _simplify_debts(table.results)
     for payer_id, receiver_id, amount in transactions:
         debt = Debt(
@@ -294,7 +328,6 @@ def close_table(
 
     _add_audit(db, admin.id, "table.closed", "PokerTable", table_id, {
         "total_in": total_in,
-        "total_out": total_out,
         "debts_created": len(transactions),
     })
 
