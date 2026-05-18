@@ -1,12 +1,11 @@
+from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import User, UserRole, Group, PokerTable, TablePlayerResult, TableStatus
 from app.core.deps import get_current_user, require_admin
-from app.schemas.stats import DashboardStats, PlayerStat
-
-from typing import Optional
+from app.schemas.stats import DashboardStats, PlayerStat, BiggestTable, DayActivity
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
@@ -54,18 +53,63 @@ def dashboard_stats(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
+    # ── Conteos básicos ────────────────────────────────────────────────────────
     total_tables = db.query(PokerTable).count()
     open_tables = db.query(PokerTable).filter(PokerTable.status == TableStatus.OPEN).count()
     total_players = db.query(User).filter(User.role == UserRole.PLAYER, User.is_active == True).count()
     total_groups = db.query(Group).count()
 
+    # ── Stats por jugador ──────────────────────────────────────────────────────
     players = db.query(User).filter(User.role == UserRole.PLAYER, User.is_active == True).all()
     stats = [_compute_player_stat(u, db) for u in players]
     stats_with_games = [s for s in stats if s.tables_played > 0]
 
-    top_winner = max(stats_with_games, key=lambda s: s.total_net) if stats_with_games else None
-    top_loser = min(stats_with_games, key=lambda s: s.total_net) if stats_with_games else None
-    ranking = sorted(stats_with_games, key=lambda s: s.total_net, reverse=True)
+    top_winner  = max(stats_with_games, key=lambda s: s.total_net)  if stats_with_games else None
+    top_loser   = min(stats_with_games, key=lambda s: s.total_net)  if stats_with_games else None
+    most_active = max(stats_with_games, key=lambda s: s.tables_played) if stats_with_games else None
+    ranking     = sorted(stats_with_games, key=lambda s: s.total_net, reverse=True)
+
+    # ── Mesas cerradas ─────────────────────────────────────────────────────────
+    closed_tables = (
+        db.query(PokerTable)
+        .filter(PokerTable.status == TableStatus.CLOSED)
+        .all()
+    )
+
+    # Pool de cada mesa = suma de total_in de todos los jugadores
+    table_pools: list[tuple[PokerTable, int, int]] = []
+    for table in closed_tables:
+        pool = sum(r.total_in for r in table.results)
+        table_pools.append((table, pool, len(table.results)))
+
+    # Dinero total jugado y recompras totales
+    total_money_played = sum(p for _, p, _ in table_pools)
+    all_results = [r for t in closed_tables for r in t.results]
+    total_rebuys = sum(r.rebuys for r in all_results)
+
+    # Mesa más grande (mayor pool)
+    biggest_table = None
+    if table_pools:
+        bt, bt_pool, bt_players = max(table_pools, key=lambda x: x[1])
+        biggest_table = BiggestTable(
+            id=bt.id,
+            name=bt.name,
+            total_pool=bt_pool,
+            player_count=bt_players,
+            closed_at=bt.closed_at.isoformat() if bt.closed_at else None,
+        )
+
+    # Serie de tiempo: agrupa por día de cierre
+    day_map: dict[str, dict] = defaultdict(lambda: {"pool": 0, "count": 0})
+    for table, pool, _ in table_pools:
+        if table.closed_at:
+            day_str = table.closed_at.strftime("%Y-%m-%d")
+            day_map[day_str]["pool"] += pool
+            day_map[day_str]["count"] += 1
+    tables_by_day = [
+        DayActivity(date=d, total_pool=v["pool"], table_count=v["count"])
+        for d, v in sorted(day_map.items())
+    ]
 
     return DashboardStats(
         total_tables=total_tables,
@@ -74,7 +118,12 @@ def dashboard_stats(
         total_groups=total_groups,
         top_winner=top_winner,
         top_loser=top_loser,
+        most_active=most_active,
         ranking=ranking,
+        total_money_played=total_money_played,
+        total_rebuys=total_rebuys,
+        biggest_table=biggest_table,
+        tables_by_day=tables_by_day,
     )
 
 
@@ -91,7 +140,6 @@ def all_player_stats(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
-    """Stats de todos los jugadores activos (para admin panel)."""
     players = db.query(User).filter(User.role == UserRole.PLAYER, User.is_active == True).all()
     return [_compute_player_stat(u, db) for u in players]
 
@@ -113,7 +161,6 @@ def my_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Historial de resultados por mesa del jugador actual (para gráficas)."""
     results = (
         db.query(TablePlayerResult)
         .join(PokerTable, TablePlayerResult.table_id == PokerTable.id)
